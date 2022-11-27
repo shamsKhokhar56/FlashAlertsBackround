@@ -1,13 +1,13 @@
-import React, { useContext, useState, useEffect, useRef } from 'react'
+import React, { useContext, useState, useEffect } from 'react'
 import { Alert, AppState, DeviceEventEmitter, Dimensions, Image, NativeModules, StyleSheet, Text, TouchableHighlight, View } from 'react-native'
 
-import { EventRegister } from 'react-native-event-listeners'
 import LinearGradient from 'react-native-linear-gradient';
 import Torch from 'react-native-torch';
 import FontAwesome from 'react-native-vector-icons/FontAwesome';
 import ScreenBrightness from 'react-native-screen-brightness';
 import CallDetectorManager from "react-native-call-detection";
 import BackgroundTimer from 'react-native-background-timer';
+import VIForegroundService from '@voximplant/react-native-foreground-service';
 
 const BatteryManager = NativeModules.BatteryManager;
 
@@ -32,6 +32,11 @@ const HomeScreen = () => {
     const [disconnected, setDisconnected] = useState(false);
     const [missed, setMissed] = useState(false);
 
+    const [isClosed, setIsClosed] = useState(false)
+    const [instance, setInstance] = useState(null)
+
+    const [appStateVisible, setAppStateVisible] = useState();
+
     useEffect(() => {
         const appStateListener = AppState.addEventListener('change',
             nextAppState => {
@@ -46,39 +51,49 @@ const HomeScreen = () => {
 
     const startListening = () => {
         console.log(`just STARTED listening calls\n\t feature is`);
-        setCallDetector(
+        let newInterval
+        setCallDetector(settingsContext.incomingCalls ?
             new CallDetectorManager(
                 (event, number) => {
-                    console.log({ event })
+                    console.log('event', { event })
                     if (event === 'Disconnected') {
+                        Torch.switchState(false)
+                        BackgroundTimer.clearInterval(newInterval)
+                        newInterval = null;
                         setDisconnected(true);
-                        setToggleSos(false)
                     } else if (event === 'Incoming') {
+                        let torch = false
+                        newInterval = BackgroundTimer.setInterval(() => {
+                            Torch.switchState(!torch)
+                            torch = !torch
+                        }, 500);
                         setIncoming(true);
-                        setToggleSos(true)
                     } else if (event === 'Offhook') {
+                        Torch.switchState(false)
+                        BackgroundTimer.clearInterval(newInterval)
+                        newInterval = null;
                         setOffhook(true);
-                        setToggleSos(false)
                     } else if (event === 'Missed') {
+                        Torch.switchState(false)
+                        BackgroundTimer.clearInterval(newInterval)
+                        newInterval = null;
                         setMissed(true);
-                        setToggleSos(false)
                     }
                 },
-                true, // if you want to read the phone number of the incoming call [ANDROID], otherwise false
-                () => { }, // callback if your permission got denied [ANDROID] [only if you want to read incoming number] default: console.error
+                false, // if you want to read the phone number of the incoming call [ANDROID], otherwise false
+                () => { console.error() }, // callback if your permission got denied [ANDROID] [only if you want to read incoming number] default: console.error
                 {
                     title: 'Phone State Permission',
                     message:
                         'This app needs access to your phone state in order to react and/or to adapt to incoming calls.',
                 },
-            ))
+            ) : null)
     };
 
     if (incoming && missed) {
         console.log('------- Incoming Missed Call');
         setIncoming(false);
         setMissed(false);
-        setToggleSos(false)
     }
 
     if (incoming && offhook & disconnected) {
@@ -86,17 +101,14 @@ const HomeScreen = () => {
         setIncoming(false);
         setOffhook(false);
         setDisconnected(false);
-        setToggleSos(false)
     }
 
-    const stopListening = () => {
+    const stopListening = async () => {
         console.log(`just STOPED listening calls\n\t feature is`);
+        await VIForegroundService.getInstance().stopService('12345')
         callDetector && callDetector?.dispose();
+        setCallDetector(null)
     };
-
-
-
-    const myInterval = useRef();
 
     useEffect(() => {
         BatteryManager.updateBatteryLevel((info) => {
@@ -106,36 +118,83 @@ const HomeScreen = () => {
         const e = DeviceEventEmitter.addListener('BatteryStatus', ({ level }) => {
             setBatteryLevel(level);
         });
-        return () => { e.remove(); clearInterval(myInterval.current); }
+        return () => { e.remove() }
     }, []);
 
     useEffect(() => {
+        console.log(callDetector)
         if (!callDetector) {
             if (settingsContext['incomingCalls']) {
-                console.log('here')
+                console.log('here 2 ?')
                 startListening()
             } else if (!settingsContext['incomingCalls']) {
-                console.log('here1')
                 stopListening()
             }
         }
+        else {
+            setCallDetector(null)
+            stopListening()
+        }
     }, [settingsContext['incomingCalls']])
 
+    useEffect(() => {
+        const appStateListener = AppState.addEventListener('change',
+            nextAppState => {
+                setAppStateVisible(nextAppState)
+            },
+        );
+        return () => {
+            appStateListener?.remove()
+        };
+    }, []);
+
+    const jobRunner = async () => {
+        const channelConfig = {
+            id: '12345',
+            name: 'flash name',
+            description: 'Channel description',
+            enableVibration: false,
+        };
+        let instanceDump = instance ? instance : await VIForegroundService.getInstance()
+
+        instanceDump.createNotificationChannel(channelConfig);
+
+        const notificationConfig = {
+            channelId: '12345',
+            id: 3456,
+            title: 'Title',
+            text: 'Some text',
+            icon: 'ic_icon',
+            button: 'Some text',
+        };
+        console.log(instanceDump && true)
+        try {
+            if (isClosed && instanceDump != null) {
+                instanceDump.startService(notificationConfig)
+            }
+            else if (instance != null && !isClosed) {
+                instanceDump.stopService('12345')
+                setInstance(null)
+            }
+        } catch (e) {
+            console.error(e);
+        }
+        if (!instance && instanceDump) {
+            // instanceDump = JSON.parse(JSON.stringify(instanceDump))
+            setInstance(instanceDump)
+        }
+    }
 
     useEffect(() => {
-        console.log({ toggleSos })
-        if (toggleSos) {
-            let torch = false;
-            const interval = BackgroundTimer.setInterval(() => {
-                Torch.switchState(!torch)
-                torch = !torch;
-            }, 500);
-            return (() => {
-                Torch.switchState(false);
-                BackgroundTimer.clearInterval(interval);
-            })
+        if (appStateVisible === 'background' && settingsContext.incomingCalls) {
+            setIsClosed(true)
+            jobRunner()
         }
-    }, [toggleSos, incoming, offhook, disconnected]);
+        else {
+            setCallDetector(null)
+            setIsClosed(false)
+        }
+    }, [appStateVisible, isClosed])
 
 
     const handleBrightness = async () => {
@@ -171,6 +230,21 @@ const HomeScreen = () => {
             return 'battery-0'
     }
 
+    useEffect(() => {
+        if (toggleSos) {
+            let torch = false;
+            const interval = BackgroundTimer.setInterval(() => {
+                console.log('here ?')
+                Torch.switchState(!torch)
+                torch = !torch;
+            }, 500);
+            return (() => {
+                Torch.switchState(false);
+                BackgroundTimer.clearInterval(interval);
+            })
+        }
+    }, [toggleSos]);
+
     Torch.switchState(toggleTorch)
 
     return (
@@ -188,7 +262,7 @@ const HomeScreen = () => {
                     </TouchableHighlight>
                     <TouchableHighlight
                         onPress={() => handleBrightness()}
-                        style={[styles.topButtons, { elevation: brightness ? 10 : 0  }]}
+                        style={[styles.topButtons, { elevation: brightness ? 10 : 0 }]}
                     >
                         <Image
                             source={require('../assets/brightness.png')}

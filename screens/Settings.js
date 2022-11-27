@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useContext } from 'react'
-import { Dimensions, Image, ScrollView, StyleSheet, AppState, Text, View, PermissionsAndroid } from 'react-native'
+import { Dimensions, Image, ScrollView, StyleSheet, AppState, Text, View, PermissionsAndroid, ToastAndroid, Alert } from 'react-native'
 
 import { EventRegister } from 'react-native-event-listeners'
 import LinearGradient from 'react-native-linear-gradient';
@@ -31,31 +31,6 @@ const Settings = () => {
     // const [missed, setMissed] = useState(false);
     // const [appStateVisible, setAppStateVisible] = useState(appState.current);
 
-
-    useEffect(() => {
-        // askPermissions()
-    }, [])
-
-    // useEffect(() => {
-    //     const subscription = AppState.addEventListener("change", nextAppState => {
-    //         if (
-    //             appState.current.match(/inactive|background/) &&
-    //             nextAppState === "active"
-    //         ) {
-    //             console.log("App has come to the foreground!");
-    //         }
-
-    //         appState.current = nextAppState;
-    //         setAppStateVisible(appState.current);
-    //         console.log("AppState", appState.current);
-    //     });
-
-    //     return () => {
-    //         subscription.remove();
-    //     };
-    // }, []);
-
-
     const askPermissions = async () => {
         try {
             const permissions = await PermissionsAndroid.requestMultiple(
@@ -63,65 +38,17 @@ const Settings = () => {
                     PermissionsAndroid.PERMISSIONS.READ_CALL_LOG,
                     PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE
                 ]);
-            console.log('Permissions are: ', permissions);
+            if (permissions['android.permission.READ_CALL_LOG'] === 'granted' && permissions['android.permission.READ_PHONE_STATE'] === 'granted') {
+                return true
+            }
+            else {
+                Alert.alert('Permission denied!')
+                return false
+            }
         } catch (err) {
             console.warn(err);
         }
     };
-
-    // const startListening = () => {
-
-    //     console.log(`just STARTED listening calls\n\t feature is`);
-    //     setCallDetector(
-    //         new CallDetectorManager(
-    //             (event, number) => {
-    //                 console.log({ event })
-    //                 if (event === 'Disconnected') {
-    //                     setDisconnected(true);
-    //                     setToggleSos(false)
-    //                 } else if (event === 'Incoming') {
-    //                     setIncoming(true);
-    //                     setToggleSos(true)
-    //                 } else if (event === 'Offhook') {
-    //                     setOffhook(true);
-    //                     setToggleSos(false)
-    //                 } else if (event === 'Missed') {
-    //                     setMissed(true);
-    //                     setToggleSos(false)
-    //                 }
-    //             },
-    //             true, // if you want to read the phone number of the incoming call [ANDROID], otherwise false
-    //             () => { }, // callback if your permission got denied [ANDROID] [only if you want to read incoming number] default: console.error
-    //             {
-    //                 title: 'Phone State Permission',
-    //                 message:
-    //                     'This app needs access to your phone state in order to react and/or to adapt to incoming calls.',
-    //             },
-    //         ))
-    // };
-
-
-    // if (incoming && missed) {
-    //     console.log('------- Incoming Missed Call');
-    //     setIncoming(false);
-    //     setMissed(false);
-    //     setToggleSos(false)
-    // }
-
-    // if (incoming && offhook & disconnected) {
-    //     console.log('------- Incoming call Answered');
-    //     setIncoming(false);
-    //     setOffhook(false);
-    //     setDisconnected(false);
-    //     setToggleSos(false)
-    // }
-
-    // const stopListening = () => {
-    //     console.log(`just STOPED listening calls\n\t feature is`);
-    //     callDetector && callDetector?.dispose();
-    // };
-
-
 
     const automaticOnChange = (value) => {
         let updateSettings = { ...settingsContext, automaticOn: value }
@@ -136,21 +63,23 @@ const Settings = () => {
         StorageHelper.save('Settings', JSON.stringify(updateSettings))
     }
 
-    const incomingCallsOnChange = (value) => {
-        let updateSettings = { ...settingsContext, incomingCalls: value }
-        setSettingsContext(updateSettings)
-        StorageHelper.save('Settings', JSON.stringify(updateSettings))
-    }
+    const incomingCallsOnChange = async (value) => {
+        if (value) {
+            askPermissions().then(checkStatus => {
+                if (checkStatus) {
+                    let updateSettings = { ...settingsContext, incomingCalls: value }
+                    setSettingsContext(updateSettings)
+                    StorageHelper.save('Settings', JSON.stringify(updateSettings))
 
-    // useEffect(() => {
-    //     if (!callDetector) {
-    //         if (settingsContext['incomingCalls']) {
-    //             startListening()
-    //         } else if (!settingsContext['incomingCalls']) {
-    //             stopListening()
-    //         }
-    //     }
-    // }, [settingsContext['incomingCalls']])
+                }
+            })
+        } else {
+            let updateSettings = { ...settingsContext, incomingCalls: value }
+            setSettingsContext(updateSettings)
+            StorageHelper.save('Settings', JSON.stringify(updateSettings))
+            ToastAndroid.show('Close Flash Alerts to reset service.', 500)
+        }
+    }
 
     const incomingSmsOnChange = (value) => {
         let updateSettings = { ...settingsContext, incomingSms: value }
@@ -170,36 +99,6 @@ const Settings = () => {
         EventRegister.emit("ChangeTheme", value)
         StorageHelper.save('Settings', JSON.stringify(updateSettings))
     }
-
-    // useEffect(() => {
-    //     console.log({ toggleSos })
-    //     if (toggleSos) {
-    //         let torch = false;
-    //         const interval = BackgroundTimer.setInterval(() => {
-    //             Torch.switchState(!torch)
-    //             torch = !torch;
-    //         }, 500);
-    //         return (() => {
-    //             Torch.switchState(false);
-    //             BackgroundTimer.clearInterval(interval);
-    //         })
-    //     }
-    // }, [toggleSos, incoming, offhook, disconnected]);
-
-    // const bgJob = () => {
-    //         if (settingsContext['incomingCalls']) {
-    //             startListening()
-    //         } else if (!settingsContext['incomingCalls']) {
-    //             stopListening()
-    //         }
-    // }
-
-    // useEffect(() => {
-    //     console.log({appStateVisible})
-    //     appStateVisible === 'background' && BackgroundService.start(bgJob())
-    //     appStateVisible !== 'background' && BackgroundService.isRunning() && BackgroundService.stop()
-
-    // }, [appStateVisible])
 
     return (
         <LinearGradient colors={theme.background} style={[styles.container, { backgroundColor: 'grey' }]} >
